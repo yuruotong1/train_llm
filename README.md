@@ -1,6 +1,6 @@
-# MiniMind
+# train_llm
 
-从零训练一个小型语言模型，六步走完预训练 → SFT → DPO 全流程。
+基于 [MiniMind](https://github.com/jingyaogong/minimind) 的训练框架，`core/` 目录封装了 MiniMind 的模型与训练逻辑。六步走完预训练 → SFT → DPO 全流程。
 
 ## 环境安装
 
