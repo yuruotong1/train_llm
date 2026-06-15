@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.Python
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Training data
+data/
+dataset/*.jsonl
+dataset/.cache/
+
+# Model weights & checkpoints
+out/
+checkpoints/
+*.pth
+*.pt
+*.safetensors
+*.bin
+
+# Windows crash dumps
+dumps/
+*.dmp
+dump_analysis.txt
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+
+# Old doc dirs (no longer in project)
+website/
+docs-minimind/

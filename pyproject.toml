@@ -1,0 +1,19 @@
+[project]
+name = "minimind"
+version = "0.1.0"
+description = "MiniMind — train a small language model from scratch"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115",
+    "modelscope>=1.37",
+    "numpy>=1.26",
+    "pydantic>=2.11",
+    "transformers>=4.57",
+    "uvicorn>=0.30",
+]
+
+[project.optional-dependencies]
+demo = ["streamlit>=1.50"]
+
+# torch must be installed separately with the right CUDA build, e.g.:
+#   uv pip install torch --index-url https://download.pytorch.org/whl/cu121
