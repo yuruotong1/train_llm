@@ -95,7 +95,7 @@ class DPOBinDataset(Dataset):
 
 def _autocast(device: str):
     if device.startswith("cuda"):
-        return torch.cuda.amp.autocast(dtype=torch.bfloat16)
+        return torch.amp.autocast("cuda", dtype=torch.bfloat16)
     return nullcontext()
 
 
@@ -188,7 +188,7 @@ def _train_sequence_stage(stage: str, init_from: str | None = None) -> tuple[Pat
     accumulation_steps = max(1, cfg["effective_batch_size"] // micro_batch_size)
     loader = _build_loader(dataset, micro_batch_size)
     optimizer = optim.AdamW(model.parameters(), lr=cfg["lr"])
-    scaler = torch.cuda.amp.GradScaler(enabled=device.startswith("cuda"))
+    scaler = torch.amp.GradScaler("cuda", enabled=device.startswith("cuda"))
     final_loss = 0.0
 
     start_epoch = _try_resume(stage, model, optimizer, device)
@@ -280,7 +280,7 @@ def train_dpo() -> tuple[Path, float]:
     model.train()
 
     optimizer = optim.AdamW(model.parameters(), lr=cfg["lr"])
-    scaler = torch.cuda.amp.GradScaler(enabled=device.startswith("cuda"))
+    scaler = torch.amp.GradScaler("cuda", enabled=device.startswith("cuda"))
     final_loss = 0.0
 
     start_epoch = _try_resume("dpo", model, optimizer, device)
