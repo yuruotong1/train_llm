@@ -99,7 +99,7 @@ def _autocast(device: str):
     return nullcontext()
 
 
-def _save_stage(stage: str, model, optimizer, epochs: int, final_loss: float) -> Path:
+def _save_stage(stage: str, model, optimizer, current_epoch: int, total_epochs: int, final_loss: float) -> Path:
     ckpt_path = checkpoint_path(stage)
     state_file = state_path(stage)
     raw_state = {k: v.detach().cpu().half() for k, v in model.state_dict().items()}
@@ -107,13 +107,45 @@ def _save_stage(stage: str, model, optimizer, epochs: int, final_loss: float) ->
     torch.save(
         {
             "optimizer": optimizer.state_dict(),
-            "epochs": epochs,
+            "current_epoch": current_epoch,
+            "total_epochs": total_epochs,
             "final_loss": final_loss,
-            "checkpoint": str(ckpt_path),
+            "completed": current_epoch >= total_epochs - 1,
         },
         state_file,
     )
     return ckpt_path
+
+
+def _check_skip(stage: str) -> tuple[Path, float] | None:
+    ckpt = checkpoint_path(stage)
+    sf = state_path(stage)
+    if ckpt.exists() and sf.exists():
+        saved = torch.load(sf, map_location="cpu", weights_only=True)
+        if saved.get("completed"):
+            print(f"[{stage}] checkpoint 已存在（loss={saved['final_loss']:.4f}），跳过训练")
+            return ckpt, saved["final_loss"]
+    return None
+
+
+def _try_resume(stage: str, model, optimizer, device: str) -> int:
+    ckpt = checkpoint_path(stage)
+    sf = state_path(stage)
+    if not (ckpt.exists() and sf.exists()):
+        return 0
+    saved = torch.load(sf, map_location="cpu", weights_only=True)
+    if saved.get("completed"):
+        return 0
+    epoch = saved.get("current_epoch", -1)
+    if epoch < 0:
+        return 0
+    state_dict = torch.load(ckpt, map_location=device)
+    model.load_state_dict(state_dict, strict=False)
+    opt_state = torch.load(sf, map_location=device)
+    optimizer.load_state_dict(opt_state["optimizer"])
+    start = epoch + 1
+    print(f"[{stage}] 检测到未完成的训练，从 epoch {start} 恢复")
+    return start
 
 
 def load_model(stage: str | None = None, device: str | None = None, max_seq_len: int = 512):
@@ -142,6 +174,9 @@ def _build_loader(dataset: Dataset, micro_batch_size: int) -> DataLoader:
 
 def _train_sequence_stage(stage: str, init_from: str | None = None) -> tuple[Path, float]:
     ensure_workspace()
+    if result := _check_skip(stage):
+        return result
+
     seed_everything()
     cfg = DEFAULTS[stage]
     device = device_name()
@@ -156,7 +191,9 @@ def _train_sequence_stage(stage: str, init_from: str | None = None) -> tuple[Pat
     scaler = torch.cuda.amp.GradScaler(enabled=device.startswith("cuda"))
     final_loss = 0.0
 
-    for epoch in range(cfg["epochs"]):
+    start_epoch = _try_resume(stage, model, optimizer, device)
+
+    for epoch in range(start_epoch, cfg["epochs"]):
         epoch_losses = []
         optimizer.zero_grad(set_to_none=True)
         for step, (input_ids, labels) in enumerate(loader, start=1):
@@ -188,9 +225,9 @@ def _train_sequence_stage(stage: str, init_from: str | None = None) -> tuple[Pat
 
         final_loss = float(sum(epoch_losses) / max(len(epoch_losses), 1))
         print(f"[{stage}] epoch {epoch + 1} average_loss={final_loss:.4f}")
+        _save_stage(stage, model, optimizer, epoch, cfg["epochs"], final_loss)
 
-    ckpt_path = _save_stage(stage, model, optimizer, cfg["epochs"], final_loss)
-    return ckpt_path, final_loss
+    return checkpoint_path(stage), final_loss
 
 
 def train_pretrain() -> tuple[Path, float]:
@@ -222,6 +259,9 @@ def _dpo_loss(ref_log_probs, policy_log_probs, mask, beta):
 
 def train_dpo() -> tuple[Path, float]:
     ensure_workspace()
+    if result := _check_skip("dpo"):
+        return result
+
     seed_everything()
     cfg = DEFAULTS["dpo"]
     device = device_name()
@@ -243,7 +283,9 @@ def train_dpo() -> tuple[Path, float]:
     scaler = torch.cuda.amp.GradScaler(enabled=device.startswith("cuda"))
     final_loss = 0.0
 
-    for epoch in range(cfg["epochs"]):
+    start_epoch = _try_resume("dpo", model, optimizer, device)
+
+    for epoch in range(start_epoch, cfg["epochs"]):
         epoch_losses = []
         optimizer.zero_grad(set_to_none=True)
         for step, batch in enumerate(loader, start=1):
@@ -287,9 +329,9 @@ def train_dpo() -> tuple[Path, float]:
 
         final_loss = float(sum(epoch_losses) / max(len(epoch_losses), 1))
         print(f"[dpo] epoch {epoch + 1} average_loss={final_loss:.4f}")
+        _save_stage("dpo", model, optimizer, epoch, cfg["epochs"], final_loss)
 
-    ckpt_path = _save_stage("dpo", model, optimizer, cfg["epochs"], final_loss)
-    return ckpt_path, final_loss
+    return checkpoint_path("dpo"), final_loss
 
 
 @torch.inference_mode()
