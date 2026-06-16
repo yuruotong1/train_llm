@@ -1,4 +1,5 @@
 import sys
+import time
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -8,9 +9,21 @@ from core.data_pipeline import prepare_all
 from core.runtime import DEFAULTS, RAW_DATA_DIR, ensure_workspace
 
 
+def _format_duration(seconds: float) -> str:
+    seconds = int(seconds)
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}时{minutes}分{secs}秒"
+    if minutes:
+        return f"{minutes}分{secs}秒"
+    return f"{secs}秒"
+
+
 def main():
     ensure_workspace()
     print("开始准备数据...")
+    start = time.time()
     result = prepare_all(
         pretrain_seq_len=DEFAULTS["pretrain"]["seq_len"],
         sft_seq_len=DEFAULTS["sft"]["seq_len"],
@@ -20,7 +33,7 @@ def main():
     print(f"数据目录: {RAW_DATA_DIR}")
     for stage, count in result["counts"].items():
         print(f"{stage} 数据条目数: {count}")
-    print("预处理完成，已生成 bin 文件到 data/processed/")
+    print(f"预处理完成，已生成 bin 文件到 data/processed/，总用时 {_format_duration(time.time() - start)}")
     print('✅ "数据就绪"')
 
 

@@ -390,6 +390,7 @@ def generate_text(
         temperature=temperature,
         top_p=top_p,
         do_sample=do_sample,
+        repetition_penalty=1.2,
         eos_token_id=tokenizer.eos_token_id,
     )
     answer_ids = generated[0][inputs.input_ids.shape[1]:]
@@ -423,6 +424,7 @@ def generate_chat_response(
         temperature=temperature,
         top_p=top_p,
         do_sample=True,
+        repetition_penalty=1.2,
         eos_token_id=tokenizer.eos_token_id,
     )
     answer_ids = generated[0][inputs.input_ids.shape[1]:]

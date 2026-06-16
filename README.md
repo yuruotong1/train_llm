@@ -1,6 +1,6 @@
 # train_llm
 
-基于 [MiniMind](https://github.com/jingyaogong/minimind) 的训练框架，`core/` 目录封装了 MiniMind 的模型与训练逻辑。六步走完预训练 → SFT → DPO 全流程。
+基于 [MiniMind](https://github.com/jingyaogong/minimind) 的训练框架。4步走完预训练 → SFT → DPO 全流程。
 
 ## 环境安装
 
@@ -16,13 +16,7 @@ torch 需单独安装，版本与本机 CUDA 驱动必须匹配。
 
 ```bash
 nvcc --version        # 查 CUDA toolkit 版本，认准 "release X.X" 那行
-nvidia-smi            # 查驱动支持的最高 CUDA 版本（右上角 CUDA Version）
 ```
-
-两个命令看的东西不同：
-- `nvcc` 是实际安装的 CUDA toolkit，PyTorch 版本应与它对齐
-- `nvidia-smi` 显示的是驱动上限，torch 版本不能超过它
-- 没装 CUDA toolkit（`nvcc` 不存在）时，以 `nvidia-smi` 的版本为准即可
 
 **第二步：按版本安装**
 
@@ -88,7 +82,7 @@ uv run python trainer/4_dpo.py
 ### 第五步：对话
 
 ```bash
-uv run python trainer/5_chat.py [pretrain|sft|dpo]
+uv run python trainer/chat.py [pretrain|sft|dpo]
 ```
 
 默认加载 `dpo` checkpoint，输入 `quit` 退出。
@@ -117,7 +111,7 @@ minimind/
 │   ├── 2_pretrain.py       # 预训练
 │   ├── 3_sft.py            # SFT 微调
 │   ├── 4_dpo.py            # DPO 对齐
-│   ├── 5_chat.py           # 交互对话
+│   ├── chat.py             # 交互对话
 │   └── server.py           # OpenAI 兼容服务
 ├── core/
 │   ├── data_pipeline.py    # 数据下载 + tokenize

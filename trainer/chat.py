@@ -18,6 +18,8 @@ def main():
 
     model, tokenizer = load_stage_for_inference(stage)
     print(f"已加载 {stage} checkpoint，输入 quit 退出。")
+    if stage == "pretrain":
+        print("提示: pretrain 是未经指令微调的基座模型，按 chat 格式提问可能出现答非所问甚至重复乱码，属于正常现象。建议测试 sft 或 dpo。")
     history = []
 
     while True:
