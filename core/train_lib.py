@@ -1,6 +1,7 @@
 import json
 import math
 import random
+import time
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -99,7 +100,20 @@ def _autocast(device: str):
     return nullcontext()
 
 
-def _save_stage(stage: str, model, optimizer, current_epoch: int, total_epochs: int, final_loss: float) -> Path:
+def _format_duration(seconds: float) -> str:
+    seconds = int(seconds)
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}时{minutes}分{secs}秒"
+    if minutes:
+        return f"{minutes}分{secs}秒"
+    return f"{secs}秒"
+
+
+def _save_stage(
+    stage: str, model, optimizer, current_epoch: int, total_epochs: int, final_loss: float, elapsed_seconds: float
+) -> Path:
     ckpt_path = checkpoint_path(stage)
     state_file = state_path(stage)
     raw_state = {k: v.detach().cpu().half() for k, v in model.state_dict().items()}
@@ -111,6 +125,7 @@ def _save_stage(stage: str, model, optimizer, current_epoch: int, total_epochs: 
             "total_epochs": total_epochs,
             "final_loss": final_loss,
             "completed": current_epoch >= total_epochs - 1,
+            "elapsed_seconds": elapsed_seconds,
         },
         state_file,
     )
@@ -123,29 +138,31 @@ def _check_skip(stage: str) -> tuple[Path, float] | None:
     if ckpt.exists() and sf.exists():
         saved = torch.load(sf, map_location="cpu", weights_only=True)
         if saved.get("completed"):
-            print(f"[{stage}] checkpoint 已存在（loss={saved['final_loss']:.4f}），跳过训练")
+            elapsed = _format_duration(saved.get("elapsed_seconds", 0.0))
+            print(f"[{stage}] checkpoint 已存在（loss={saved['final_loss']:.4f}，用时 {elapsed}），跳过训练")
             return ckpt, saved["final_loss"]
     return None
 
 
-def _try_resume(stage: str, model, optimizer, device: str) -> int:
+def _try_resume(stage: str, model, optimizer, device: str) -> tuple[int, float]:
     ckpt = checkpoint_path(stage)
     sf = state_path(stage)
     if not (ckpt.exists() and sf.exists()):
-        return 0
+        return 0, 0.0
     saved = torch.load(sf, map_location="cpu", weights_only=True)
     if saved.get("completed"):
-        return 0
+        return 0, 0.0
     epoch = saved.get("current_epoch", -1)
     if epoch < 0:
-        return 0
+        return 0, 0.0
     state_dict = torch.load(ckpt, map_location=device)
     model.load_state_dict(state_dict, strict=False)
     opt_state = torch.load(sf, map_location=device)
     optimizer.load_state_dict(opt_state["optimizer"])
     start = epoch + 1
-    print(f"[{stage}] 检测到未完成的训练，从 epoch {start} 恢复")
-    return start
+    prior_elapsed = saved.get("elapsed_seconds", 0.0)
+    print(f"[{stage}] 检测到未完成的训练，从 epoch {start} 恢复（已用时 {_format_duration(prior_elapsed)}）")
+    return start, prior_elapsed
 
 
 def load_model(stage: str | None = None, device: str | None = None, max_seq_len: int = 512):
@@ -191,9 +208,11 @@ def _train_sequence_stage(stage: str, init_from: str | None = None) -> tuple[Pat
     scaler = torch.amp.GradScaler("cuda", enabled=device.startswith("cuda"))
     final_loss = 0.0
 
-    start_epoch = _try_resume(stage, model, optimizer, device)
+    start_epoch, prior_elapsed = _try_resume(stage, model, optimizer, device)
+    train_start = time.time()
 
     for epoch in range(start_epoch, cfg["epochs"]):
+        epoch_start = time.time()
         epoch_losses = []
         optimizer.zero_grad(set_to_none=True)
         for step, (input_ids, labels) in enumerate(loader, start=1):
@@ -224,9 +243,15 @@ def _train_sequence_stage(stage: str, init_from: str | None = None) -> tuple[Pat
                 )
 
         final_loss = float(sum(epoch_losses) / max(len(epoch_losses), 1))
-        print(f"[{stage}] epoch {epoch + 1} average_loss={final_loss:.4f}")
-        _save_stage(stage, model, optimizer, epoch, cfg["epochs"], final_loss)
+        epoch_elapsed = time.time() - epoch_start
+        total_elapsed = prior_elapsed + (time.time() - train_start)
+        print(
+            f"[{stage}] epoch {epoch + 1} average_loss={final_loss:.4f} "
+            f"用时 {_format_duration(epoch_elapsed)}（累计 {_format_duration(total_elapsed)}）"
+        )
+        _save_stage(stage, model, optimizer, epoch, cfg["epochs"], final_loss, total_elapsed)
 
+    print(f"[{stage}] 训练完成，总用时 {_format_duration(prior_elapsed + (time.time() - train_start))}")
     return checkpoint_path(stage), final_loss
 
 
@@ -283,9 +308,11 @@ def train_dpo() -> tuple[Path, float]:
     scaler = torch.amp.GradScaler("cuda", enabled=device.startswith("cuda"))
     final_loss = 0.0
 
-    start_epoch = _try_resume("dpo", model, optimizer, device)
+    start_epoch, prior_elapsed = _try_resume("dpo", model, optimizer, device)
+    train_start = time.time()
 
     for epoch in range(start_epoch, cfg["epochs"]):
+        epoch_start = time.time()
         epoch_losses = []
         optimizer.zero_grad(set_to_none=True)
         for step, batch in enumerate(loader, start=1):
@@ -328,9 +355,15 @@ def train_dpo() -> tuple[Path, float]:
                 )
 
         final_loss = float(sum(epoch_losses) / max(len(epoch_losses), 1))
-        print(f"[dpo] epoch {epoch + 1} average_loss={final_loss:.4f}")
-        _save_stage("dpo", model, optimizer, epoch, cfg["epochs"], final_loss)
+        epoch_elapsed = time.time() - epoch_start
+        total_elapsed = prior_elapsed + (time.time() - train_start)
+        print(
+            f"[dpo] epoch {epoch + 1} average_loss={final_loss:.4f} "
+            f"用时 {_format_duration(epoch_elapsed)}（累计 {_format_duration(total_elapsed)}）"
+        )
+        _save_stage("dpo", model, optimizer, epoch, cfg["epochs"], final_loss, total_elapsed)
 
+    print(f"[dpo] 训练完成，总用时 {_format_duration(prior_elapsed + (time.time() - train_start))}")
     return checkpoint_path("dpo"), final_loss
 
 
